@@ -394,6 +394,9 @@ int main(int argc, char* argv[]) {
     HANDLE h_stdout = InitStdout();
     HANDLE h_port   = InitPort(sp_s);
 
+    // Display a welcome message.
+    printf("Connecting to %s. Press Ctrl-F10 to quit.\n");
+
     // Main loop. Copy the data from stdin to the serial port, and from the serial port to stdout.
     while (1) {        
         // Read stdin
