@@ -406,7 +406,7 @@ int main(int argc, char* argv[]) {
 
             // Echo read characters back in hex, if requested (--debug-input)          
             if (DebugInput) {
-                for (int i = 0; i < bytes_stdin; i++) {
+                for (DWORD i = 0; i < bytes_stdin; i++) {
                     printf("[%02X]", buf[i]);
                 }
             }
