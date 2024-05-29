@@ -28,18 +28,20 @@ or
 
 ### Starting the program
 
-Start this program with the serial port as an argument, along with any options. e.g.:
+Start this program with the serial port as an argument, along with any options. 
+e.g.:
 
-`spconnect com1 -W 10000`
+`spconnect com1 -w 10000`
 
 ### Options
 
 ```
--L       --local-echo          Enable local echo of characters typed.
--S       --system-codepage     Use system codepage instead of UTF-8.
--R       --replace-cr          Replace input CR (\r) with newline (\n).
--D       --disable-vt          Disable sending and receiving of virtual terminal (VT) codes.
--W 100   --write-timeout 100   Serial port write timeout, in milliseconds. Default 1000.
+  -h      --help               Full documentation.
+  -l      --local-echo         Enable local echo of characters typed.
+  -s      --system-codepage    Use system codepage instead of UTF-8.
+  -r      --replace-cr         Replace input CR (\r) with newline (\n).
+  -d      --disable-vt         Disable virtual terminal (VT) codes.
+  -w 100  --write-timeout 100  Serial port write timeout, in ms. Default 1000.
 ```
 
 ### Quitting
@@ -49,7 +51,7 @@ Use `Ctrl-F10` to quit.
 ### Using a different codepage
 
 The default is to use UTF-8 for console input and output. You can use the system
-codepage instead by using the `-S` option. You can check the system codepage 
+codepage instead by using the `-s` option. You can check the system codepage 
 and change it using the the windows built-in `mode con cp` command. e.g.:
 
 `mode con cp select=1251`
@@ -57,9 +59,13 @@ and change it using the the windows built-in `mode con cp` command. e.g.:
 ### Disable VT processing (raw mode)
 
 The default is to process VT commands from both the keyboard and the serial 
-port. You can disable VT processing (essentially a raw mode) using `-D`.
+port. You can disable VT processing (essentially a raw mode) using `-d`.
 
 ## Similar programs
 
-- SimpleSerial
-- ???
+- [https://github.com/fasteddy516/SimplySerial](SimpleSerial) (C#, MIT license)
+- [https://github.com/YaSuenag/SimpleCom](SimpleCom) (C++, GPLv2 license)
+- [https://github.com/Dasors/comPST/tree/main](comPST) (PowerShell)
+- [https://github.com/airbornesurfer/windows-serial-terminal](windows-serial-terminal) (Python)
+- [https://github.com/weltling/convey](convey) (C++). Works with named pipes too.
+- [https://github.com/itas109/CommLite](CommLine) (C++). Serial port tool, TUI, multi-platform.

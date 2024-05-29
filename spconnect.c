@@ -3,19 +3,19 @@
 // See README.md for more information.
 // Available from https://github.com/david47k/spconnect/
 
-const char* HELP_MSG =
-    "Usage: spconnect <PORT> [OPTIONS]\n"
-    "e.g.:  spconnect com1 -W 10000\n"
+const char* SHORT_HELP_MSG =
+    "Usage: 'spconnect <PORT> [OPTIONS]'\n"
+    "e.g.:  'spconnect com1 -w 10000'\n"
     "\n"
     "Options:\n"
-    "  -L      --local-echo         Enable local echo of characters typed.\n"
-    "  -S      --system-codepage    Use system codepage instead of UTF-8.\n"
-    "  -R      --replace-cr         Replace input CR (\\r) with newline (\\n).\n"
-    "  -D      --disable-vt         Disable sending and receiving of virtual terminal (VT) codes.\n"
-    "  -W 100  --write-timeout 100  Serial port write timeout, in milliseconds. Default 1000.\n"
+    "  -h      --help               Full documentation.\n"
+    "  -l      --local-echo         Enable local echo of characters typed.\n"
+    "  -s      --system-codepage    Use system codepage instead of UTF-8.\n"
+    "  -r      --replace-cr         Replace input CR (\\r) with newline (\\n).\n"
+    "  -d      --disable-vt         Disable virtual terminal (VT) codes.\n"
+    "  -w 100  --write-timeout 100  Serial port write timeout, in ms. Default 1000.\n"
     "\n"
-    "Use Ctrl-F10 to quit.\n"
-    "See README.md for more information.\n";
+    "Use Ctrl-F10 to quit.\n";
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -27,6 +27,7 @@ const char* HELP_MSG =
 #include <winbase.h>
 #include <fileapi.h>
 #include <synchapi.h>
+#include "README.h"
 
 //
 // Tweakable constants
@@ -205,8 +206,8 @@ HANDLE InitPort(char * sp_s) {
 // Read stdin and fill the buffer with bytes. 
 //
 DWORD ReadStdin(HANDLE h_stdin, char * buf_c, DWORD buf_c_size) {    
-    INPUT_RECORD ir[RECORD_SIZE];           // Place to store the input records we read
-    wchar_t buf_w[WBUF_SIZE];               // Place to store the input characters we read
+    INPUT_RECORD ir[RECORD_SIZE] = { 0 };   // Place to store the input records we read
+    wchar_t buf_w[WBUF_SIZE] = { 0 };       // Place to store the input characters we read
     assert(RECORD_SIZE < WBUF_SIZE);        // We must have enough room to store all the characters we read
     
     // Find the number of records available
@@ -324,20 +325,20 @@ int main(int argc, char* argv[]) {
                 DebugInput = true;
             }
             else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
-                fprintf(stderr, "\n%s", HELP_MSG);
+                fprintf(stderr, "\n%s", README);
                 exit(0);
             }
             else if (strcmp(arg, "--write-timeout") == 0 || strcmp(arg, "-w") == 0) {
                 // check we have a follow-up number
                 if((i+1) >= argc) {
-                    fprintf(stderr, "\nNo write timeout specified\n");
+                    fprintf(stderr, "No write timeout specified.\n%s", SHORT_HELP_MSG);
                     exit(1);
                 }
                 i++;
                 WriteTimeout = atoi(argv[i]);
             }
             else {
-                fprintf(stderr, "\nUnknown option: %s\n", argv[i]);
+                fprintf(stderr, "Unknown option: %s\n%s", argv[i], SHORT_HELP_MSG);
                 exit(1);
             }
         }
@@ -345,7 +346,7 @@ int main(int argc, char* argv[]) {
 
     // Check that we have a serial port
     if (sp_s[0] == 0) {
-        fprintf(stderr, "\nPlease specify a serial port. e.g. 'spconnect com1'. For help, run 'spconnect --help'.\n");
+        fprintf(stderr, "Please specify a serial port. e.g. 'spconnect com1'.\n%s", SHORT_HELP_MSG);
         exit(1);
     }
 
