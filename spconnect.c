@@ -359,13 +359,17 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Connecting to %s. Press Ctrl-F10 to quit.\n", sp_s);
 
     // Main loop. Copy the data from stdin to the serial port, and from the serial port to stdout.
-    while (1) {        
+    while (1) {
+        // If we quiet, sleep; if we are busy, don't sleep.
+        bool keep_active = false;
+
         // Read stdin
         char buf[BUF_SIZE];
-        DWORD bytes_stdin = ReadStdin(h_stdin, buf, BUF_SIZE);   
+        DWORD bytes_stdin = ReadStdin(h_stdin, buf, BUF_SIZE);
        
         // If we read anything from stdin, process it
         if (bytes_stdin > 0) {                  
+            keep_active = true;
             DWORD bytes_written = 0;
 
             // Echo read characters back in hex, if requested (--debug-input)          
@@ -398,7 +402,8 @@ int main(int argc, char* argv[]) {
         }
         
         // If we read anything from the serial port, process it
-        if (bytes_read > 0) {                             
+        if (bytes_read > 0) {    
+            keep_active = true;                         
             // Write read data to stdout
             DWORD bytes_written = 0;
             if (WriteConsoleA(h_stdout, buf, bytes_read, &bytes_written, NULL) == 0) {
@@ -410,7 +415,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Sleep until we start the loop again
-        Sleep(SLEEP_TIME);
+        if(!keep_active) Sleep(SLEEP_TIME);
     }
 
     return 0;
