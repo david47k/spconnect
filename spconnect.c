@@ -8,12 +8,13 @@ const char* SHORT_HELP_MSG =
     "e.g.:  'spconnect com1 -w 100'\n"
     "\n"
     "Options:\n"
-    "  -h      --help               Full documentation.\n"
-    "  -l      --local-echo         Enable local echo of characters typed.\n"
-    "  -s      --system-codepage    Use system codepage instead of UTF-8.\n"
-    "  -r      --replace-cr         Replace input CR (\\r) with newline (\\n).\n"
-    "  -d      --disable-vt         Disable virtual terminal (VT) codes.\n"
-    "  -w 100  --write-timeout 100  Serial port write timeout, in ms. Default 1000.\n"
+    "  -h       --help               Full documentation.\n"
+    "  -l       --local-echo         Enable local echo of characters typed.\n"
+    "  -s       --system-codepage    Use system codepage instead of UTF-8.\n"
+    "  -r       --replace-cr         Replace input CR (\\r) with newline (\\n).\n"
+    "  -d       --disable-vt         Disable virtual terminal (VT) codes.\n"
+    "  -c 9600  --configure-port     Configure the port with given baud rate, 8N1.\n"
+    "  -w 100   --write-timeout 100  Serial port write timeout, in ms. Default 1000.\n"
     "\n"
     "Use Ctrl-F10 to quit.\n";
 
@@ -63,10 +64,10 @@ int    main(int argc, char* argv[]);
 //
 void ExitWithError(const char * callstr, bool use_gle) {
     if (use_gle) {
-        fprintf(stderr, "\n%s failed with error %u.\n", callstr, GetLastError());
+        fprintf(stderr, "\nspconnect exiting. %s failed with error %u.\n", callstr, GetLastError());
     }
     else {
-        fprintf(stderr, "\n%s\n", callstr);
+        fprintf(stderr, "\nspconnect exiting. %s\n", callstr);
     }
     RestoreConsole();
     exit(1);
@@ -203,6 +204,29 @@ HANDLE InitPort(char * sp_s) {
 }
 
 //
+// Configure serial port. e.g. baud rate, data bits, etc.
+//
+void ConfigureSerialPort(HANDLE port, DWORD baud_rate) {
+    DCB dcbSerialParams = { 0 };
+    dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
+    if (!GetCommState(port, &dcbSerialParams)) {
+        ExitWithError("GetCommState: Error getting serial port state,", true);
+        return;
+    }
+
+    // Modify settings as needed (e.g., set baud rate, parity, etc.)
+    dcbSerialParams.BaudRate = baud_rate;
+    dcbSerialParams.ByteSize = 8;
+    dcbSerialParams.Parity = NOPARITY;
+    dcbSerialParams.StopBits = ONESTOPBIT;
+
+    if (!SetCommState(port, &dcbSerialParams)) {
+        ExitWithError("SetCommState: Error setting serial port state,", true);
+        return;
+    }
+}
+
+//
 // Read stdin and fill the buffer with bytes. Nonblocking.
 //
 DWORD ReadStdin(HANDLE stdin_h, char * buf_c, DWORD buf_c_size) {    
@@ -245,6 +269,7 @@ DWORD ReadStdin(HANDLE stdin_h, char * buf_c, DWORD buf_c_size) {
         if (ir[i].Event.KeyEvent.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {    // Check for Ctrl
             // Check for F10
             if (ir[i].Event.KeyEvent.wVirtualKeyCode == VK_F10) {
+                fprintf(stderr, "\nspconnect quitting.\n");
                 RestoreConsole();
                 exit(0);
             }
@@ -275,6 +300,7 @@ DWORD ReadStdin(HANDLE stdin_h, char * buf_c, DWORD buf_c_size) {
     // Check for Ctrl-F10 (in VT mode). \x1B [21;5~
     for (int i = 0; i < bytes_stdin - 6; i++) {        
         if (memcmp(buf_c, "\x1b""[21;5~", 7) == 0) {
+            fprintf(stderr, "\nspconnect quitting.\n");
             RestoreConsole();
             exit(0);
         }
@@ -288,6 +314,7 @@ DWORD ReadStdin(HANDLE stdin_h, char * buf_c, DWORD buf_c_size) {
 //
 int main(int argc, char* argv[]) {
     char* sp_s = "";
+    DWORD BaudRate = 0;     // 0 is an invalid baud rate, anything other number we can try
 
     // Process arguments
     for(int i=1; i<argc; i++) {
@@ -337,6 +364,15 @@ int main(int argc, char* argv[]) {
                 i++;
                 WriteTimeout = atoi(argv[i]);
             }
+            else if (strcmp(arg, "--configure-port") == 0 || strcmp(arg, "-c") == 0) {
+                // check we have a follow-up number
+                if((i+1) >= argc) {
+                    fprintf(stderr, "No baud rate specified.\n%s", SHORT_HELP_MSG);
+                    exit(1);
+                }
+                i++;
+                BaudRate = atoi(argv[i]);
+            }
             else {
                 fprintf(stderr, "Unknown option: %s\n%s", argv[i], SHORT_HELP_MSG);
                 exit(1);
@@ -354,6 +390,11 @@ int main(int argc, char* argv[]) {
     HANDLE stdin_h  = InitStdin();
     HANDLE stdout_h = InitStdout();
     HANDLE port_h   = InitPort(sp_s);
+
+    // Configure serial port, if requested.
+    if(BaudRate != 0) {
+        ConfigureSerialPort(port_h, BaudRate);
+    }
 
     // Display a welcome message.
     fprintf(stderr, "Connecting to %s. Press Ctrl-F10 to quit.\n", sp_s);
