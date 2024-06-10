@@ -5,7 +5,7 @@
 
 const char* SHORT_HELP_MSG =
     "Usage: 'spconnect <PORT> [OPTIONS]'\n"
-    "e.g.:  'spconnect com1 -w 10000'\n"
+    "e.g.:  'spconnect com1 -w 100'\n"
     "\n"
     "Options:\n"
     "  -h      --help               Full documentation.\n"
