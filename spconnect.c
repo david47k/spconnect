@@ -55,7 +55,7 @@ void   StrToLower(char* str, size_t max_len);
 HANDLE InitStdin();
 HANDLE InitStdout();
 void   RestoreConsole();
-DWORD  ReadStdin(HANDLE h_stdin, char * buf, DWORD buf_size);
+DWORD  ReadStdin(HANDLE stdin_h, char * buf, DWORD buf_size);
 int    main(int argc, char* argv[]);
 
 //
@@ -101,11 +101,11 @@ HANDLE InitStdin() {
     }
     
     if (GetFileType(stdin_h) != FILE_TYPE_CHAR) {
-        ExitWithError("GetFileType(h_stdin)", true);
+        ExitWithError("GetFileType(stdin_h)", true);
     }
 
     if (GetConsoleMode(stdin_h, &STDIN_ORIGINAL_MODE) == 0) {   // Set global, so we can restore the console settings on exit
-        ExitWithError("GetConsoleMode(h_stdin)", true);
+        ExitWithError("GetConsoleMode(stdin_h)", true);
     }
     DWORD stdin_mode =         
         ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS      // Allow the user to use the mouse to select and edit text
@@ -117,7 +117,7 @@ HANDLE InitStdin() {
         stdin_mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;        // User input is converted into VT sequences.
     }
     if (SetConsoleMode(stdin_h, stdin_mode) == 0) {
-        ExitWithError("SetConsoleMode(h_stdin)", true);
+        ExitWithError("SetConsoleMode(stdin_h)", true);
     }
 
     if (!SystemCP) {
@@ -203,16 +203,61 @@ HANDLE InitPort(char * sp_s) {
 }
 
 //
+// Initialise serial port asynch. 
+//
+HANDLE InitPortAsynch(char* sp_s) {
+    // Open the serial port
+
+    HANDLE port = CreateFileA(sp_s, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+    if (port == INVALID_HANDLE_VALUE) {
+        ExitWithError("CreateFileA(sp_s)", true);
+        return port; // for linting
+    }
+
+    // Configure serial port settings (e.g., baud rate, data bits, etc.)
+    DCB dcbSerialParams = { 0 };
+    dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
+    if (!GetCommState(port, &dcbSerialParams)) {
+        CloseHandle(port);
+        ExitWithError("GetCommState: Error getting serial port state.", false);
+        return INVALID_HANDLE_VALUE; // for linting
+    }
+
+    // Modify settings as needed (e.g., set baud rate, parity, etc.)
+    dcbSerialParams.BaudRate = CBR_115200;
+    dcbSerialParams.ByteSize = 8;
+    dcbSerialParams.Parity = NOPARITY;
+    dcbSerialParams.StopBits = ONESTOPBIT;
+
+    if (!SetCommState(port, &dcbSerialParams)) {
+        CloseHandle(port);
+        ExitWithError("SetCommState: Error setting serial port state.\n", true);
+        return INVALID_HANDLE_VALUE; // for linting
+    }
+
+    // Set comms timeouts.
+    // We request for our reads to return straight away, even if there are no bytes (non-blocking). 
+    // Writes will eventually timeout.
+    //COMMTIMEOUTS cto = { MAXDWORD, 0, 0, 0, WriteTimeout };
+    //if (SetCommTimeouts(port, &cto) == 0) {
+        //ExitWithError("SetCommTimeouts", true);
+    //}
+
+    return port;
+}
+
+
+//
 // Read stdin and fill the buffer with bytes. 
 //
-DWORD ReadStdin(HANDLE h_stdin, char * buf_c, DWORD buf_c_size) {    
+DWORD ReadStdin(HANDLE stdin_h, char * buf_c, DWORD buf_c_size) {    
     INPUT_RECORD ir[RECORD_SIZE] = { 0 };   // Place to store the input records we read
     wchar_t buf_w[WBUF_SIZE] = { 0 };       // Place to store the input characters we read
     assert(RECORD_SIZE < WBUF_SIZE);        // We must have enough room to store all the characters we read
     
     // Find the number of records available
     DWORD records_avail = 0;
-    GetNumberOfConsoleInputEvents(h_stdin, &records_avail);    
+    GetNumberOfConsoleInputEvents(stdin_h, &records_avail);    
     
     // If there is no data, return early
     if (records_avail < 1) {                            
@@ -227,7 +272,7 @@ DWORD ReadStdin(HANDLE h_stdin, char * buf_c, DWORD buf_c_size) {
     // See: https://github.com/microsoft/terminal/issues/7777
     // Specifically comment: https://github.com/microsoft/terminal/issues/7777#issuecomment-726912745
     DWORD records_read = 0;
-    if (ReadConsoleInputW(h_stdin, ir, records_avail, &records_read) == 0) {
+    if (ReadConsoleInputW(stdin_h, ir, records_avail, &records_read) == 0) {
         ExitWithError("ReadConsoleInputW", true);
     }
     if (records_read != records_avail) {
@@ -351,72 +396,131 @@ int main(int argc, char* argv[]) {
     }
 
     // Initialize stdin and stdout and the serial port
-    HANDLE h_stdin  = InitStdin();
-    HANDLE h_stdout = InitStdout();
-    HANDLE h_port   = InitPort(sp_s);
+    HANDLE stdin_h  = InitStdin();
+    HANDLE stdout_h = InitStdout();
+    HANDLE port_h   = InitPortAsynch(sp_s);
 
     // Display a welcome message.
     fprintf(stderr, "Connecting to %s. Press Ctrl-F10 to quit.\n", sp_s);
 
-    // Main loop. Copy the data from stdin to the serial port, and from the serial port to stdout.
-    while (1) {
-        // If we quiet, sleep; if we are busy, don't sleep.
-        bool keep_active = false;
+ 
 
-        // Read stdin
-        char buf[BUF_SIZE];
-        DWORD bytes_stdin = ReadStdin(h_stdin, buf, BUF_SIZE);
-       
-        // If we read anything from stdin, process it
-        if (bytes_stdin > 0) {                  
-            keep_active = true;
-            DWORD bytes_written = 0;
-
-            // Echo read characters back in hex, if requested (--debug-input)          
-            if (DebugInput) {
-                for (DWORD i = 0; i < bytes_stdin; i++) {
-                    printf("[%02X]", buf[i]);
-                }
-            }
-            
-            // Echo read characters back to console (local echo)  
-            if (LocalEcho) {
-                if (WriteConsoleA(h_stdout, buf, bytes_stdin, &bytes_written, NULL) == 0) {
-                    ExitWithError("WriteConsoleA(h_stdout) (echo)", true);
-                }
-            }
-
-            // Write to serial port
-            if (WriteFile(h_port, buf, bytes_stdin, &bytes_written, NULL) == 0) {
-                ExitWithError("WriteFile(h_port)", true);
-            }
-            if (bytes_written != bytes_stdin) {
-                ExitWithError("Timed out writing to serial port.", false);
-            }
+    // Set up an async read file.
+    // If we already have an asynch operation outstanding, we cannot reuse these data structures
+    char port_read_buf[BUF_SIZE] = { 0 };
+    OVERLAPPED port_in_over = { 0 };
+    OVERLAPPED port_out_over = { 0 };
+    HANDLE handles[2] = { port_h, 0 };
+    if (ReadFile(port_h, &port_read_buf, BUF_SIZE, NULL, &port_in_over) == 0) {
+        if (GetLastError() != ERROR_IO_PENDING) {
+            ExitWithError("Failed ReadFile asynch on serial port.", true);
         }
-
-        // Read serial port
-        DWORD bytes_read = 0;
-        if (ReadFile(h_port, &buf, BUF_SIZE, &bytes_read, NULL) == 0) {
-            ExitWithError("ReadFile(h_port)", true);
-        }
-        
-        // If we read anything from the serial port, process it
-        if (bytes_read > 0) {    
-            keep_active = true;                         
-            // Write read data to stdout
-            DWORD bytes_written = 0;
-            if (WriteConsoleA(h_stdout, buf, bytes_read, &bytes_written, NULL) == 0) {
-                ExitWithError("WriteFile(h_stdout)", true);
-            }
-            if (bytes_written != bytes_read) {
-                fprintf(stderr, "\nWARNING: WriteFile(h_stdout) failed to write all available bytes (req: %u, written: %u).\n", bytes_read, bytes_written);
-            }
-        }
-
-        // Sleep until we start the loop again
-        if(!keep_active) Sleep(SLEEP_TIME);
     }
+
+    bool port_write_busy = false;
+    char port_write_buf[BUF_SIZE];
+
+    // Main loop.
+    do {
+        DWORD rval = WaitForMultipleObjects(1, &handles[0], FALSE, 1000); // sleep up to a second
+
+        // rval will tell us one item that was flagged, but not both...
+        if (rval < 1) {
+            // an event was flagged
+            if (rval == 0) {    // port event
+                // handle port
+                DWORD bytes_read = 0;
+                bool read_complete = false;
+                if (GetOverlappedResult(port_h, &port_in_over, &bytes_read, false) == 0) {
+                    if (GetLastError() != ERROR_IO_INCOMPLETE) {
+                        ExitWithError("GetOverlappedResult", true);
+                    }
+                }
+                else {
+                    read_complete = true;
+                }
+
+                DWORD bytes_written = 0;
+                bool write_complete = false;
+                if (GetOverlappedResult(port_h, &port_out_over, &bytes_written, false) == 0) {
+                    if (GetLastError() != ERROR_IO_INCOMPLETE) {
+                        ExitWithError("GetOverlappedResult", true);
+                    }
+                }
+                else {
+                    write_complete = true;
+                }
+
+                if (read_complete) {
+                    if (bytes_read > 0) {
+                        // Write read data to stdout
+                        DWORD bytes_written = 0;
+                        if (WriteConsoleA(stdout_h, port_read_buf, bytes_read, &bytes_written, NULL) == 0) {
+                            ExitWithError("WriteFile(stdout_h)", true);
+                        }
+                        if (bytes_written != bytes_read) {
+                            fprintf(stderr, "\nWARNING: WriteFile(stdout_h) failed to write all available bytes (req: %u, written: %u).\n", bytes_read, bytes_written);
+                        }
+                    }
+                    // Set up the read again
+                    memset(&port_in_over, 0, sizeof(OVERLAPPED));
+                    if (ReadFile(port_h, &port_read_buf, BUF_SIZE, NULL, &port_in_over) == 0) {
+                        if (GetLastError() != ERROR_IO_PENDING) {
+                            ExitWithError("Failed ReadFile asynch on serial port.", true);
+                        }
+                    }
+                }
+                if (write_complete) {                    
+                    // just need to note the flag
+                    port_write_busy = false;
+                }
+            } 
+        }
+        else if (rval >= WAIT_ABANDONED_0 && rval <= WAIT_ABANDONED_0 + 1) {
+            // An abandoned mutex object error occured
+            ExitWithError("Abandoned mutex object\n", true);
+        }
+        else if (rval == WAIT_FAILED) {
+            // A wait_failed error
+            ExitWithError("WAIT_FAILED\n", true);
+        }
+        else if (rval != WAIT_TIMEOUT) {
+            ExitWithError("Unknown asynch error\n", true);
+        }
+
+        if (port_write_busy == false) {
+            // Read stdin
+            DWORD bytes_stdin = ReadStdin(stdin_h, port_write_buf, BUF_SIZE);
+
+            // If we read anything from stdin, process it
+            if (bytes_stdin > 0) {
+                port_write_busy = true;
+
+                // Echo read characters back in hex, if requested (--debug-input)          
+                if (DebugInput) {
+                    for (DWORD i = 0; i < bytes_stdin; i++) {
+                        printf("[%02X]", port_write_buf[i]);
+                    }
+                }
+
+                // Echo read characters back to console (local echo) 
+                DWORD bytes_written_c = 0;
+                if (LocalEcho) {
+                    if (WriteConsoleA(stdout_h, port_write_buf, bytes_stdin, &bytes_written_c, NULL) == 0) {
+                        ExitWithError("WriteConsoleA(stdout_h) (echo)", true);
+                    }
+                }
+
+                // Write to serial port
+                memset(&port_out_over, 0, sizeof(OVERLAPPED));
+                if (WriteFile(port_h, port_write_buf, bytes_stdin, NULL, &port_out_over) == 0) {
+                    if (GetLastError() != ERROR_IO_PENDING) {
+                        ExitWithError("WriteFile(port_h)", true);
+                    }
+                }
+            }
+        }
+    } while (1);
 
     return 0;
 }
