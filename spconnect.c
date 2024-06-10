@@ -55,7 +55,7 @@ void   StrToLower(char* str, size_t max_len);
 HANDLE InitStdin();
 HANDLE InitStdout();
 void   RestoreConsole();
-DWORD  ReadStdin(HANDLE h_stdin, char * buf, DWORD buf_size);
+DWORD  ReadStdin(HANDLE stdin_h, char * buf, DWORD buf_size);
 int    main(int argc, char* argv[]);
 
 //
@@ -101,11 +101,11 @@ HANDLE InitStdin() {
     }
     
     if (GetFileType(stdin_h) != FILE_TYPE_CHAR) {
-        ExitWithError("GetFileType(h_stdin)", true);
+        ExitWithError("GetFileType(stdin_h)", true);
     }
 
     if (GetConsoleMode(stdin_h, &STDIN_ORIGINAL_MODE) == 0) {   // Set global, so we can restore the console settings on exit
-        ExitWithError("GetConsoleMode(h_stdin)", true);
+        ExitWithError("GetConsoleMode(stdin_h)", true);
     }
     DWORD stdin_mode =         
         ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS      // Allow the user to use the mouse to select and edit text
@@ -117,7 +117,7 @@ HANDLE InitStdin() {
         stdin_mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;        // User input is converted into VT sequences.
     }
     if (SetConsoleMode(stdin_h, stdin_mode) == 0) {
-        ExitWithError("SetConsoleMode(h_stdin)", true);
+        ExitWithError("SetConsoleMode(stdin_h)", true);
     }
 
     if (!SystemCP) {
@@ -203,16 +203,16 @@ HANDLE InitPort(char * sp_s) {
 }
 
 //
-// Read stdin and fill the buffer with bytes. 
+// Read stdin and fill the buffer with bytes. Nonblocking.
 //
-DWORD ReadStdin(HANDLE h_stdin, char * buf_c, DWORD buf_c_size) {    
+DWORD ReadStdin(HANDLE stdin_h, char * buf_c, DWORD buf_c_size) {    
     INPUT_RECORD ir[RECORD_SIZE] = { 0 };   // Place to store the input records we read
     wchar_t buf_w[WBUF_SIZE] = { 0 };       // Place to store the input characters we read
     assert(RECORD_SIZE < WBUF_SIZE);        // We must have enough room to store all the characters we read
     
     // Find the number of records available
     DWORD records_avail = 0;
-    GetNumberOfConsoleInputEvents(h_stdin, &records_avail);    
+    GetNumberOfConsoleInputEvents(stdin_h, &records_avail);    
     
     // If there is no data, return early
     if (records_avail < 1) {                            
@@ -227,7 +227,7 @@ DWORD ReadStdin(HANDLE h_stdin, char * buf_c, DWORD buf_c_size) {
     // See: https://github.com/microsoft/terminal/issues/7777
     // Specifically comment: https://github.com/microsoft/terminal/issues/7777#issuecomment-726912745
     DWORD records_read = 0;
-    if (ReadConsoleInputW(h_stdin, ir, records_avail, &records_read) == 0) {
+    if (ReadConsoleInputW(stdin_h, ir, records_avail, &records_read) == 0) {
         ExitWithError("ReadConsoleInputW", true);
     }
     if (records_read != records_avail) {
@@ -351,9 +351,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Initialize stdin and stdout and the serial port
-    HANDLE h_stdin  = InitStdin();
-    HANDLE h_stdout = InitStdout();
-    HANDLE h_port   = InitPort(sp_s);
+    HANDLE stdin_h  = InitStdin();
+    HANDLE stdout_h = InitStdout();
+    HANDLE port_h   = InitPort(sp_s);
 
     // Display a welcome message.
     fprintf(stderr, "Connecting to %s. Press Ctrl-F10 to quit.\n", sp_s);
@@ -362,7 +362,7 @@ int main(int argc, char* argv[]) {
     while (1) {        
         // Read stdin
         char buf[BUF_SIZE];
-        DWORD bytes_stdin = ReadStdin(h_stdin, buf, BUF_SIZE);   
+        DWORD bytes_stdin = ReadStdin(stdin_h, buf, BUF_SIZE);   
        
         // If we read anything from stdin, process it
         if (bytes_stdin > 0) {                  
@@ -377,14 +377,14 @@ int main(int argc, char* argv[]) {
             
             // Echo read characters back to console (local echo)  
             if (LocalEcho) {
-                if (WriteConsoleA(h_stdout, buf, bytes_stdin, &bytes_written, NULL) == 0) {
-                    ExitWithError("WriteConsoleA(h_stdout) (echo)", true);
+                if (WriteConsoleA(stdout_h, buf, bytes_stdin, &bytes_written, NULL) == 0) {
+                    ExitWithError("WriteConsoleA(stdout_h) (echo)", true);
                 }
             }
 
             // Write to serial port
-            if (WriteFile(h_port, buf, bytes_stdin, &bytes_written, NULL) == 0) {
-                ExitWithError("WriteFile(h_port)", true);
+            if (WriteFile(port_h, buf, bytes_stdin, &bytes_written, NULL) == 0) {
+                ExitWithError("WriteFile(port_h)", true);
             }
             if (bytes_written != bytes_stdin) {
                 ExitWithError("Timed out writing to serial port.", false);
@@ -393,19 +393,19 @@ int main(int argc, char* argv[]) {
 
         // Read serial port
         DWORD bytes_read = 0;
-        if (ReadFile(h_port, &buf, BUF_SIZE, &bytes_read, NULL) == 0) {
-            ExitWithError("ReadFile(h_port)", true);
+        if (ReadFile(port_h, &buf, BUF_SIZE, &bytes_read, NULL) == 0) {
+            ExitWithError("ReadFile(port_h)", true);
         }
         
         // If we read anything from the serial port, process it
         if (bytes_read > 0) {                             
             // Write read data to stdout
             DWORD bytes_written = 0;
-            if (WriteConsoleA(h_stdout, buf, bytes_read, &bytes_written, NULL) == 0) {
-                ExitWithError("WriteFile(h_stdout)", true);
+            if (WriteConsoleA(stdout_h, buf, bytes_read, &bytes_written, NULL) == 0) {
+                ExitWithError("WriteFile(stdout_h)", true);
             }
             if (bytes_written != bytes_read) {
-                fprintf(stderr, "\nWARNING: WriteFile(h_stdout) failed to write all available bytes (req: %u, written: %u).\n", bytes_read, bytes_written);
+                fprintf(stderr, "\nWARNING: WriteFile(stdout_h) failed to write all available bytes (req: %u, written: %u).\n", bytes_read, bytes_written);
             }
         }
 
